@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 // File Imports
 import connectDB from "./database/connectDB";
 import adminRoutes from "./routes/adminRoutes";
+import { errorHandler } from "./middleware/errorHandler";
 
 // Initialise Environment Variable
 dotenv.config();
@@ -24,16 +25,15 @@ connectDB();
 //Middlewares
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json({ limit: "50mb" }));
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  console.error(err.stack);
-  res.status(500).json({ error: "App Middleware Error!" });
-});
 
 //Routes
 app.use("/api/admin", adminRoutes);
 app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "Ok" });
 });
+
+// Error Handling Middleware
+app.use(errorHandler);
 
 // Start Server
 const startServer = async () => {
