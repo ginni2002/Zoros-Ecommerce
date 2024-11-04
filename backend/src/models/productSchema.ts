@@ -1,62 +1,91 @@
-import { Schema, model, Document } from "mongoose";
+import { Schema, model } from "mongoose";
+import { IProduct, ProductCategory } from "../types/product.types";
 
-//types
-export interface IProduct extends Document {
-  name: string;
-  description: string;
-  price: number;
-  category:
-    | "GRAPHICS_CARD"
-    | "GAMING_LAPTOP"
-    | "MOUSE"
-    | "KEYBOARD"
-    | "MONITOR"
-    | "HEADSET";
-  brand: string;
-  imageUrl: string;
-  stock: number;
-  specifications: {
-    [key: string]: string | number;
-  };
-  ratings: {
-    average: number;
-    count: number;
-  };
-}
-
-//schema
 const productSchema = new Schema<IProduct>(
   {
-    name: { type: String, required: true },
-    description: { type: String, required: true },
-    price: { type: Number, required: true },
+    name: {
+      type: String,
+      required: [true, "Name is required"],
+      trim: true,
+    },
+    description: {
+      type: String,
+      required: [true, "Description is required"],
+      trim: true,
+    },
+    price: {
+      type: Number,
+      required: [true, "Price is required"],
+      min: [0, "Price cannot be negative"],
+    },
     category: {
       type: String,
-      required: true,
-      enum: [
-        "GRAPHICS_CARD",
-        "GAMING_LAPTOP",
-        "MOUSE",
-        "KEYBOARD",
-        "MONITOR",
-        "HEADSET",
-      ],
+      required: [true, "Category is required"],
+      enum: {
+        values: Object.values(ProductCategory),
+        message: "Invalid category",
+      },
     },
-    brand: { type: String, required: true },
-    imageUrl: { type: String, required: true },
-    stock: { type: Number, required: true, default: 0 },
+    brand: {
+      type: String,
+      required: [true, "Brand is required"],
+      trim: true,
+    },
+    imageUrl: {
+      type: String,
+      required: [true, "Image URL is required"],
+      trim: true,
+    },
+    stock: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: [0, "Stock cannot be negative"],
+    },
     specifications: {
       type: Map,
       of: Schema.Types.Mixed,
       default: {},
     },
     ratings: {
-      average: { type: Number, default: 0 },
-      count: { type: Number, default: 0 },
+      average: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 5,
+      },
+      count: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
+  }
 );
 
+productSchema.index({ name: "text", description: "text" });
+productSchema.index({ category: 1 });
+productSchema.index({ brand: 1 });
+productSchema.index({ price: 1 });
+
+productSchema.virtual("isInStock").get(function () {
+  return this.stock > 0;
+});
+
+productSchema.methods.updateStock = async function (quantity: number) {
+  this.stock += quantity;
+  return this.save();
+};
+
+productSchema.statics.findByCategory = function (category: string) {
+  return this.find({ category });
+};
+
 const Product = model<IProduct>("Product", productSchema);
+
 export default Product;

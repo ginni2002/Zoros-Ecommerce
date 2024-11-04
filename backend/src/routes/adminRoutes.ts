@@ -3,6 +3,6 @@ import { addMockData } from "../controllers/adminController";
 
 const router: Router = express.Router();
 
-router.post("/test/mock/add_Data", addMockData);
+router.post("/mock/add_Data", addMockData);
 
 export default router;
