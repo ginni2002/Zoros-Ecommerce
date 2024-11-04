@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import connectDB from "./database/connectDB";
 import adminRoutes from "./routes/adminRoutes";
 import { errorHandler } from "./middleware/errorHandler";
+import authRoutes from "./routes/authRoutes";
 
 // Initialise Environment Variable
 dotenv.config();
@@ -28,6 +29,7 @@ app.use(express.json({ limit: "50mb" }));
 
 //Routes
 app.use("/api/admin", adminRoutes);
+app.use("/api/auth", authRoutes);
 app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "Ok" });
 });
