@@ -9,6 +9,7 @@ import { errorHandler } from "./middleware/errorHandler";
 import authRoutes from "./routes/authRoutes";
 import productRoutes from "./routes/productRoutes";
 import searchRoutes from "./routes/searchRoutes";
+import cartRoutes from "./routes/cartRoutes";
 
 // Initialise Environment Variable
 dotenv.config();
@@ -34,6 +35,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/search", searchRoutes);
+app.use("/api/cart", cartRoutes);
 app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "Ok" });
 });
