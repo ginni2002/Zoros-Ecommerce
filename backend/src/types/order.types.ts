@@ -25,6 +25,7 @@ export interface ShippingAddress {
 }
 
 export interface IOrder extends Document {
+  _id: Types.ObjectId;
   user: Types.ObjectId | string;
   items: OrderItem[];
   totalAmount: number;
