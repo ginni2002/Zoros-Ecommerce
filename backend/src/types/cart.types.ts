@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { Document, Types } from "mongoose";
+import { IProduct } from "./product.types";
 
 export interface CartItem {
-  product: Types.ObjectId | string;
+  product: Types.ObjectId | string | IProduct;
   quantity: number;
   price: number;
 }
