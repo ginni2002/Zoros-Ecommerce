@@ -3,6 +3,7 @@ import express, { Express, Request, Response, NextFunction } from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import helmet from "helmet";
+import nodemailer from "nodemailer";
 
 // File Imports
 import connectDB from "./database/connectDB";
@@ -27,6 +28,8 @@ const requiredEnvVars = [
   "STRIPE_PUBLIC_KEY",
   "STRIPE_WEBHOOK_SECRET",
   "FRONTEND_URL",
+  "EMAIL_USER",
+  "EMAIL_APP_PASSWORD",
 ];
 
 const missingEnvVars = requiredEnvVars.filter((envVar) => !process.env[envVar]);
@@ -45,10 +48,35 @@ const PORT: number = parseInt(process.env.PORT, 10);
 // Connect Database
 connectDB();
 
-// Webhooks
-app.use("/api/webhooks", webhookRoutes);
+//Email test
+// const testEmail = async () => {
+//   try {
+//     const transporter = nodemailer.createTransport({
+//       service: "gmail",
+//       auth: {
+//         user: process.env.EMAIL_USER,
+//         pass: process.env.EMAIL_APP_PASSWORD,
+//       },
+//     });
 
-//Middlewares
+//     await transporter.verify();
+//     console.log("Email configuration is valid");
+
+//     const info = await transporter.sendMail({
+//       from: `"Zoros-ecom" <${process.env.EMAIL_USER}>`,
+//       to: process.env.EMAIL_USER,
+//       subject: "Test Email",
+//       text: "Test email message.",
+//     });
+//     console.log("Test email sent:", info.messageId);
+//   } catch (error) {
+//     console.error("Email configuration error:", error);
+//   }
+// };
+
+// testEmail();
+
+// cors
 app.use(helmet());
 app.use(
   cors({
@@ -56,6 +84,11 @@ app.use(
     credentials: true,
   })
 );
+
+// Webhooks
+app.use("/api/webhooks/stripe", webhookRoutes);
+
+//Middlewares
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json({ limit: "50mb" }));
 
