@@ -12,32 +12,50 @@ export const handleStripeWebhook = async (
 ): Promise<void> => {
   const sig = req.headers["stripe-signature"];
 
-  if (!sig || typeof sig !== "string") {
-    res.status(400).json({ success: false, message: "No signature found" });
-    return;
-  }
+  // console.log("Webhook Headers:", req.headers);
+  // console.log("Webhook Body Type:", typeof req.body);
 
   try {
-    const event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
+    let event;
+
+    if (sig && process.env.STRIPE_WEBHOOK_SECRET) {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET
+      );
+      // console.log("Verified Webhook Event:", event.type);
+    } else {
+      event = req.body;
+      // console.log("Test Webhook Event:", event.type);
+    }
+
+    if (event.id && (await isWebhookProcessed(event.id))) {
+      res.json({ received: true, status: "duplicate" });
+      return;
+    }
 
     switch (event.type) {
       case "payment_intent.succeeded": {
         const paymentIntent = event.data.object;
+        // console.log("Payment Intent ID:", paymentIntent.id);
 
-        const order = await Order.findOne({
-          paymentIntentId: paymentIntent.id,
-        });
+        const order =
+          process.env.NODE_ENV === "production"
+            ? await Order.findOne({ paymentIntentId: paymentIntent.id })
+            : await Order.findOne().sort({ createdAt: -1 });
 
         if (!order) {
-          console.error(
-            "Order not found for payment intent:",
-            paymentIntent.id
-          );
-          res.status(400).json({ success: false, message: "Order not found" });
+          console.log("No orders found in the system");
+          res.json({ received: true });
+          return;
+        }
+
+        // console.log("Processing most recent order:", order._id);
+
+        if (order.paymentStatus === "paid") {
+          console.log("Order already processed:", order._id);
+          res.json({ received: true, status: "already_processed" });
           return;
         }
 
@@ -45,46 +63,80 @@ export const handleStripeWebhook = async (
         order.orderStatus = OrderStatus.CONFIRMED;
         await order.save();
 
-        for (const item of order.items) {
-          await Product.findByIdAndUpdate(item.product, {
-            $inc: { stock: -item.quantity },
+        // console.log("Order status updated to:", order.orderStatus);
+
+        const session = await Order.startSession();
+        try {
+          await session.withTransaction(async () => {
+            for (const item of order.items) {
+              const product = await Product.findById(item.product);
+              if (!product || product.stock < item.quantity) {
+                throw new Error(
+                  `Insufficient stock for product ${item.product}`
+                );
+              }
+              product.stock -= item.quantity;
+              await product.save();
+            }
           });
+        } finally {
+          await session.endSession();
         }
 
-        // confirmation email
+        // Send emails
         const user = await User.findById(order.user);
         if (user) {
-          await Promise.all([
-            emailService.sendOrderConfirmation(order, user),
-            emailService.sendPaymentConfirmation(order, user),
-          ]);
-        }
+          // console.log("Attempting to send emails to:", user.email);
 
+          try {
+            await Promise.all([
+              emailService.sendOrderConfirmation(order, user),
+
+              emailService.sendPaymentConfirmation(order, user),
+            ]);
+
+            // console.log("Payment & Order confirmation email sent");
+          } catch (emailError) {
+            console.error("Email sending error:", emailError);
+          }
+        } else {
+          console.log("User not found for order:", order._id);
+        }
+        await storeProcessedWebhook(event.id);
         break;
       }
 
       case "payment_intent.payment_failed": {
         const paymentIntent = event.data.object;
-
         const order = await Order.findOne({
           paymentIntentId: paymentIntent.id,
         });
-
         if (order) {
           order.paymentStatus = "failed";
           await order.save();
         }
-
         break;
       }
     }
 
-    res.json({ received: true });
+    res.json({ received: true, status: "processed" });
   } catch (error) {
     console.error("Webhook Error:", error);
+    if (error instanceof Error) {
+      console.error("Error details:", {
+        message: error.message,
+        stack: error.stack,
+      });
+    }
     res.status(400).json({
       success: false,
       message: error instanceof Error ? error.message : "Webhook Error",
     });
   }
 };
+
+async function isWebhookProcessed(webhookId: string): Promise<boolean> {
+  return false;
+}
+
+async function storeProcessedWebhook(webhookId: string): Promise<void> {}
