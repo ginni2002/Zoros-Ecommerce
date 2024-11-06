@@ -17,7 +17,9 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: "2024-10-28.acacia",
 });
 
-export const createPaymentIntent = async (amount: number): Promise<string> => {
+export const createPaymentIntent = async (
+  amount: number
+): Promise<{ clientSecret: string; paymentIntentId: string }> => {
   const paymentIntent = await stripe.paymentIntents.create({
     amount: Math.round(amount * 100), // paise
     currency: "inr",
@@ -26,7 +28,17 @@ export const createPaymentIntent = async (amount: number): Promise<string> => {
     },
   });
 
-  return paymentIntent.client_secret!;
+  console.log("Created Stripe Payment Intent:", {
+    id: paymentIntent.id,
+    clientSecret: paymentIntent.client_secret,
+    amount: paymentIntent.amount,
+    status: paymentIntent.status,
+  });
+
+  return {
+    clientSecret: paymentIntent.client_secret!,
+    paymentIntentId: paymentIntent.id,
+  };
 };
 
 export const retrievePaymentIntent = async (paymentIntentId: string) => {

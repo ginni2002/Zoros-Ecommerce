@@ -79,6 +79,14 @@ export const createOrder = async (
       imageUrl: item.product.imageUrl,
     }));
 
+    const { clientSecret, paymentIntentId } = await createPaymentIntent(
+      cart.totalAmount
+    );
+    console.log("Created Payment Intent:", {
+      clientSecret,
+      paymentIntentId: clientSecret.split("_secret")[0],
+    });
+
     const order = new Order({
       user: req.user._id,
       items: orderItems,
@@ -86,11 +94,13 @@ export const createOrder = async (
       shippingAddress,
       paymentStatus: "pending",
       orderStatus: OrderStatus.PENDING_PAYMENT,
+      paymentIntentId,
     });
-
-    const clientSecret = await createPaymentIntent(cart.totalAmount);
-
     await order.save();
+    console.log("Created Order:", {
+      orderId: order._id,
+      paymentIntentId: order.paymentIntentId,
+    });
 
     cart.items = [];
     await cart.save();
