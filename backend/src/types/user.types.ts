@@ -58,8 +58,13 @@ export type SignupType = z.infer<typeof signupSchema>;
 export type LoginType = z.infer<typeof loginSchema>;
 export type AddressType = z.infer<typeof addressSchema>;
 
-export interface IUser extends UserType, Document {
+export interface IAddress extends AddressType {
   _id: Types.ObjectId;
+}
+
+export interface IUser extends Omit<UserType, "addresses">, Document {
+  _id: Types.ObjectId;
+  addresses: IAddress[];
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;

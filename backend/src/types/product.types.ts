@@ -17,7 +17,7 @@ export const ratingsSchema = z.object({
 });
 
 export const productSchema = z.object({
-  name: z.string().min(1, "Name is required"),
+  name: z.string().min(3, "Name is required"),
   description: z.string().min(1, "Description is required"),
   price: z.number().positive("Price must be positive"),
   category: z.enum(Object.values(ProductCategory) as [string, ...string[]], {
