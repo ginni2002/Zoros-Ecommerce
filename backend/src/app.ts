@@ -3,7 +3,7 @@ import express, { Express, Request, Response, NextFunction } from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import helmet from "helmet";
-import nodemailer from "nodemailer";
+// import nodemailer from "nodemailer";
 
 // File Imports
 import connectDB from "./database/connectDB";
@@ -15,6 +15,7 @@ import searchRoutes from "./routes/searchRoutes";
 import cartRoutes from "./routes/cartRoutes";
 import orderRoutes from "./routes/orderRoutes";
 import webhookRoutes from "./routes/webhookRoutes";
+import { testRedisConnection } from "./utils/redisUtils";
 
 // Initialise Environment Variable
 dotenv.config();
@@ -30,6 +31,9 @@ const requiredEnvVars = [
   "FRONTEND_URL",
   "EMAIL_USER",
   "EMAIL_APP_PASSWORD",
+  "REDIS_HOST",
+  "REDIS_PASSWORD",
+  "REDIS_PORT",
 ];
 
 const missingEnvVars = requiredEnvVars.filter((envVar) => !process.env[envVar]);
@@ -47,6 +51,9 @@ const PORT: number = parseInt(process.env.PORT, 10);
 
 // Connect Database
 connectDB();
+
+// Test redis connection
+testRedisConnection();
 
 //Email test
 // const testEmail = async () => {
