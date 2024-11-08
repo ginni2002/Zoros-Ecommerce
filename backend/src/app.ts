@@ -14,8 +14,10 @@ import productRoutes from "./routes/productRoutes";
 import searchRoutes from "./routes/searchRoutes";
 import cartRoutes from "./routes/cartRoutes";
 import orderRoutes from "./routes/orderRoutes";
+import profileRoutes from "./routes/profileRoutes";
 import webhookRoutes from "./routes/webhookRoutes";
-import { testRedisConnection } from "./utils/redisUtils";
+import orderHistoryRoutes from "./routes/orderHistoryRoutes";
+// import { testRedisConnection } from "./utils/redisUtils";
 
 // Initialise Environment Variable
 dotenv.config();
@@ -53,7 +55,7 @@ const PORT: number = parseInt(process.env.PORT, 10);
 connectDB();
 
 // Test redis connection
-testRedisConnection();
+// testRedisConnection();
 
 //Email test
 // const testEmail = async () => {
@@ -102,10 +104,12 @@ app.use(express.json({ limit: "50mb" }));
 //Routes
 app.use("/api/admin", adminRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/profile", profileRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/orders", orderRoutes);
+app.use("/api/order-history", orderHistoryRoutes);
 
 // Backend Health Check
 app.get("/health", (_req: Request, res: Response) => {
