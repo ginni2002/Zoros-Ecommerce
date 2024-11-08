@@ -192,14 +192,14 @@ export const sendEmail = async (
   template: EmailTemplate
 ): Promise<void> => {
   try {
-    console.log("Attempting to send email to:", to);
-    console.log("Email template:", {
-      subject: template.subject,
-      htmlPreview: template.html.substring(0, 100) + "...",
-    });
+    // console.log("Attempting to send email to:", to);
+    // console.log("Email template:", {
+    //   subject: template.subject,
+    //   htmlPreview: template.html.substring(0, 100) + "...",
+    // });
 
     const result = await transporter.sendMail({
-      from: `"Gaming Store" <${process.env.EMAIL_USER}>`,
+      from: `"Zoros-Ecom" <${process.env.EMAIL_USER}>`,
       to,
       subject: template.subject,
       html: template.html,

@@ -28,12 +28,12 @@ export const createPaymentIntent = async (
     },
   });
 
-  console.log("Created Stripe Payment Intent:", {
-    id: paymentIntent.id,
-    clientSecret: paymentIntent.client_secret,
-    amount: paymentIntent.amount,
-    status: paymentIntent.status,
-  });
+  // console.log("Created Stripe Payment Intent:", {
+  //   id: paymentIntent.id,
+  //   clientSecret: paymentIntent.client_secret,
+  //   amount: paymentIntent.amount,
+  //   status: paymentIntent.status,
+  // });
 
   return {
     clientSecret: paymentIntent.client_secret!,
