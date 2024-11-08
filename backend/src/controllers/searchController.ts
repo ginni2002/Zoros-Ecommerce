@@ -8,6 +8,7 @@ import {
 } from "../types/search.types";
 import Product from "../models/productSchema";
 import { formatZodError } from "../utils/errorUtils";
+import redisClient from "../utils/redisUtils";
 
 export const searchProducts = async (
   req: Request<{}, ApiResponse<SearchResponse>, {}, SearchQueryType>,
@@ -38,6 +39,19 @@ export const searchProducts = async (
 
     //  auto-suggestion request
     if (suggest === "true") {
+      const suggestionCacheKey = `suggestions:${q}`;
+      const cachedSuggestions = await redisClient.getCachedSearchResults(
+        suggestionCacheKey,
+        {}
+      );
+
+      if (cachedSuggestions) {
+        res.status(200).json({
+          success: true,
+          data: cachedSuggestions,
+        });
+        return;
+      }
       //  regex for auto-suggestions
       const suggestions = await Product.find(
         {
@@ -52,14 +66,41 @@ export const searchProducts = async (
         .lean()
         .exec();
 
+      const suggestionResponse = {
+        products: [],
+        totalResults: 0,
+        suggestions: suggestions.map((item) => item.name),
+        facets: { categories: [], brands: [], priceRanges: [] },
+      };
+
+      await redisClient.cacheSearchResults(
+        suggestionCacheKey,
+        {},
+        suggestionResponse
+      );
+
       res.status(200).json({
         success: true,
-        data: {
-          products: [],
-          totalResults: 0,
-          suggestions: suggestions.map((item) => item.name),
-          facets: { categories: [], brands: [], priceRanges: [] },
-        },
+        data: suggestionResponse,
+      });
+      return;
+    }
+
+    const filters = {
+      category,
+      minPrice,
+      maxPrice,
+      brand,
+      limit,
+      page,
+    };
+
+    const cachedResults = await redisClient.getCachedSearchResults(q, filters);
+    if (cachedResults) {
+      res.status(200).json({
+        success: true,
+        data: cachedResults,
+        message: "Search results retrieved from cache",
       });
       return;
     }
@@ -143,16 +184,19 @@ export const searchProducts = async (
 
     const totalResults = await Product.countDocuments(searchQuery);
 
-    // Type assertion  'lean results'
     const results = searchResults as unknown as PlainProduct[];
+
+    const searchResponse = {
+      products: results,
+      totalResults,
+      facets: facets[0],
+    };
+
+    await redisClient.cacheSearchResults(q, filters, searchResponse);
 
     res.status(200).json({
       success: true,
-      data: {
-        products: results,
-        totalResults,
-        facets: facets[0],
-      },
+      data: searchResponse,
       message: "Search results retrieved successfully",
     });
   } catch (error) {

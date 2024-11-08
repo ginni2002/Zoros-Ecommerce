@@ -5,6 +5,7 @@ import Product from "../models/productSchema";
 import { OrderStatus } from "../types/order.types";
 import emailService from "../utils/emailService";
 import User from "../models/userSchema";
+import redisClient from "../utils/redisUtils";
 
 export const handleStripeWebhook = async (
   req: Request,
@@ -30,9 +31,13 @@ export const handleStripeWebhook = async (
       // console.log("Test Webhook Event:", event.type);
     }
 
-    if (event.id && (await isWebhookProcessed(event.id))) {
-      res.json({ received: true, status: "duplicate" });
-      return;
+    if (event.id) {
+      const isDuplicate = await redisClient.isWebhookProcessed(event.id);
+      if (isDuplicate) {
+        console.log("Duplicate webhook received:", event.id);
+        res.json({ received: true, status: "duplicate" });
+        return;
+      }
     }
 
     switch (event.type) {
@@ -77,32 +82,30 @@ export const handleStripeWebhook = async (
               }
               product.stock -= item.quantity;
               await product.save();
+              await redisClient.invalidateProduct(item.product.toString());
             }
+
+            // Send emails
+            const user = await User.findById(order.user);
+            if (user) {
+              // console.log("Attempting to send emails to:", user.email);
+              try {
+                await Promise.all([
+                  emailService.sendOrderConfirmation(order, user),
+                  emailService.sendPaymentConfirmation(order, user),
+                ]);
+                // console.log("Payment & Order confirmation email sent");
+              } catch (emailError) {
+                console.error("Email sending error:", emailError);
+              }
+              await redisClient.invalidateCart(user._id.toString());
+            }
+            await redisClient.invalidateSearchCache();
           });
         } finally {
           await session.endSession();
         }
 
-        // Send emails
-        const user = await User.findById(order.user);
-        if (user) {
-          // console.log("Attempting to send emails to:", user.email);
-
-          try {
-            await Promise.all([
-              emailService.sendOrderConfirmation(order, user),
-
-              emailService.sendPaymentConfirmation(order, user),
-            ]);
-
-            // console.log("Payment & Order confirmation email sent");
-          } catch (emailError) {
-            console.error("Email sending error:", emailError);
-          }
-        } else {
-          console.log("User not found for order:", order._id);
-        }
-        await storeProcessedWebhook(event.id);
         break;
       }
 
@@ -114,6 +117,10 @@ export const handleStripeWebhook = async (
         if (order) {
           order.paymentStatus = "failed";
           await order.save();
+          const user = await User.findById(order.user);
+          if (user) {
+            await redisClient.invalidateCart(user._id.toString());
+          }
         }
         break;
       }
@@ -128,15 +135,16 @@ export const handleStripeWebhook = async (
         stack: error.stack,
       });
     }
+
+    try {
+      await redisClient.invalidateSearchCache();
+    } catch (cacheError) {
+      console.error("Cache invalidation error:", cacheError);
+    }
+
     res.status(400).json({
       success: false,
       message: error instanceof Error ? error.message : "Webhook Error",
     });
   }
 };
-
-async function isWebhookProcessed(webhookId: string): Promise<boolean> {
-  return false;
-}
-
-async function storeProcessedWebhook(webhookId: string): Promise<void> {}

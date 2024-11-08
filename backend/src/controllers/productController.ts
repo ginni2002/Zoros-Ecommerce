@@ -14,6 +14,7 @@ import {
   productIdSchema,
 } from "../types/product-detail.types";
 import mongoose from "mongoose";
+import redisClient from "../utils/redisUtils";
 
 export const getProducts = async (
   req: Request<
@@ -137,14 +138,21 @@ export const getProductById = async (
 
     const productId = validationResult.data.id;
 
-    const product = await Product.findById(productId);
+    const cachedProduct = await redisClient.getCachedProduct(productId);
 
-    if (!product) {
-      res.status(404).json({
-        success: false,
-        message: "Product not found",
-      });
-      return;
+    let product;
+    if (cachedProduct) {
+      product = cachedProduct;
+    } else {
+      product = await Product.findById(productId);
+      if (!product) {
+        res.status(404).json({
+          success: false,
+          message: "Product not found",
+        });
+        return;
+      }
+      await redisClient.cacheProduct(product);
     }
 
     const [previousProduct, nextProduct] = await Promise.all([
@@ -220,7 +228,6 @@ export const getProductsByCategory = async (
     const limitNum = parseInt(limit as string);
     const skip = (pageNum - 1) * limitNum;
 
-    // Build sort object
     const sortObj: Record<string, 1 | -1> = {};
     if (typeof sort === "string") {
       const sortField = sort.startsWith("-") ? sort.slice(1) : sort;
@@ -253,6 +260,42 @@ export const getProductsByCategory = async (
     res.status(500).json({
       success: false,
       message: "Failed to retrieve products by category",
+    });
+  }
+};
+
+export const updateProduct = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const product = await Product.findByIdAndUpdate(id, req.body, {
+      new: true,
+    });
+
+    if (!product) {
+      res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+      return;
+    }
+
+    await redisClient.invalidateProduct(id);
+
+    await redisClient.invalidateSearchCache();
+
+    res.status(200).json({
+      success: true,
+      data: product,
+      message: "Product updated successfully",
+    });
+  } catch (error) {
+    console.error("Error in updateProduct:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update product",
     });
   }
 };

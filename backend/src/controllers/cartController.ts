@@ -10,6 +10,7 @@ import {
 import Cart from "../models/cartSchema";
 import Product from "../models/productSchema";
 import { formatZodError } from "../utils/errorUtils";
+import redisClient from "../utils/redisUtils";
 
 // cart response
 const formatCartResponse = async (cart: any): Promise<CartResponse> => {
@@ -41,6 +42,18 @@ export const getCart = async (
   res: Response<ApiResponse<CartResponse>>
 ): Promise<void> => {
   try {
+    const userId = req.user._id.toString();
+
+    const cachedCart = await redisClient.getCachedCart(userId);
+    if (cachedCart) {
+      res.status(200).json({
+        success: true,
+        data: cachedCart,
+        message: "Cart retrieved from cache successfully",
+      });
+      return;
+    }
+
     let cart = await Cart.findOne({ user: req.user._id });
 
     if (!cart) {
@@ -52,6 +65,8 @@ export const getCart = async (
     }
 
     const formattedCart = await formatCartResponse(cart);
+
+    await redisClient.cacheCart(userId, formattedCart);
 
     res.status(200).json({
       success: true,
@@ -84,14 +99,19 @@ export const addToCart = async (
     }
 
     const { productId, quantity } = validationResult.data;
+    const userId = req.user._id.toString();
 
-    const product = await Product.findById(productId);
+    let product = await redisClient.getCachedProduct(productId);
     if (!product) {
-      res.status(404).json({
-        success: false,
-        message: "Product not found",
-      });
-      return;
+      product = await Product.findById(productId);
+      if (!product) {
+        res.status(404).json({
+          success: false,
+          message: "Product not found",
+        });
+        return;
+      }
+      await redisClient.cacheProduct(product);
     }
 
     if (product.stock < quantity) {
@@ -102,31 +122,47 @@ export const addToCart = async (
       return;
     }
 
-    let cart = await Cart.findOne({ user: req.user._id });
+    let cart = await redisClient.getCachedCart(userId);
+    let cartDocument;
+
     if (!cart) {
-      cart = await Cart.create({
-        user: req.user._id,
-        items: [],
-      });
+      cartDocument = await Cart.findOne({ user: userId });
+      if (!cartDocument) {
+        cartDocument = await Cart.create({
+          user: userId,
+          items: [],
+        });
+      }
+    } else {
+      cartDocument = await Cart.findOne({ user: userId });
+      if (!cartDocument) {
+        await redisClient.invalidateCart(userId);
+        cartDocument = await Cart.create({
+          user: userId,
+          items: [],
+        });
+      }
     }
 
-    const existingItemIndex = cart.items.findIndex(
+    const existingItemIndex = cartDocument.items.findIndex(
       (item) => item.product.toString() === productId
     );
 
     if (existingItemIndex > -1) {
-      cart.items[existingItemIndex].quantity += quantity;
-      cart.items[existingItemIndex].price = product.price;
+      cartDocument.items[existingItemIndex].quantity += quantity;
+      cartDocument.items[existingItemIndex].price = product.price;
     } else {
-      cart.items.push({
+      cartDocument.items.push({
         product: productId,
         quantity,
         price: product.price,
       });
     }
 
-    await cart.save();
-    const formattedCart = await formatCartResponse(cart);
+    await cartDocument.save();
+
+    const formattedCart = await formatCartResponse(cartDocument);
+    await redisClient.updateCartCache(userId, formattedCart);
 
     res.status(200).json({
       success: true,
@@ -135,6 +171,9 @@ export const addToCart = async (
     });
   } catch (error) {
     console.error("Error in addToCart:", error);
+    if (req.user?._id) {
+      await redisClient.invalidateCart(req.user._id.toString());
+    }
     res.status(500).json({
       success: false,
       message: "Failed to add product to cart",
@@ -160,17 +199,55 @@ export const updateCartItem = async (
 
     const { quantity } = validationResult.data;
     const { productId } = req.params;
+    const userId = req.user._id.toString();
 
-    const cart = await Cart.findOne({ user: req.user._id });
-    if (!cart) {
-      res.status(404).json({
+    let product = await redisClient.getCachedProduct(productId);
+    if (!product) {
+      product = await Product.findById(productId);
+      if (!product) {
+        res.status(404).json({
+          success: false,
+          message: "Product not found",
+        });
+        return;
+      }
+
+      await redisClient.cacheProduct(product);
+    }
+
+    if (product.stock < quantity) {
+      res.status(400).json({
         success: false,
-        message: "Cart not found",
+        message: "Insufficient stock",
       });
       return;
     }
 
-    const itemIndex = cart.items.findIndex(
+    let cartDocument = null;
+    const cachedCart = await redisClient.getCachedCart(userId);
+
+    if (cachedCart) {
+      cartDocument = await Cart.findOne({ user: userId });
+      if (!cartDocument) {
+        await redisClient.invalidateCart(userId);
+        res.status(404).json({
+          success: false,
+          message: "Cart not found",
+        });
+        return;
+      }
+    } else {
+      cartDocument = await Cart.findOne({ user: userId });
+      if (!cartDocument) {
+        res.status(404).json({
+          success: false,
+          message: "Cart not found",
+        });
+        return;
+      }
+    }
+
+    const itemIndex = cartDocument.items.findIndex(
       (item) => item.product.toString() === productId
     );
 
@@ -182,28 +259,13 @@ export const updateCartItem = async (
       return;
     }
 
-    const product = await Product.findById(productId);
-    if (!product) {
-      res.status(404).json({
-        success: false,
-        message: "Product not found",
-      });
-      return;
-    }
+    cartDocument.items[itemIndex].quantity = quantity;
+    cartDocument.items[itemIndex].price = product.price;
+    await cartDocument.save();
 
-    if (product.stock < quantity) {
-      res.status(400).json({
-        success: false,
-        message: "Insufficient stock",
-      });
-      return;
-    }
+    const formattedCart = await formatCartResponse(cartDocument);
 
-    cart.items[itemIndex].quantity = quantity;
-    cart.items[itemIndex].price = product.price;
-
-    await cart.save();
-    const formattedCart = await formatCartResponse(cart);
+    await redisClient.updateCartCache(userId, formattedCart);
 
     res.status(200).json({
       success: true,
@@ -212,6 +274,10 @@ export const updateCartItem = async (
     });
   } catch (error) {
     console.error("Error in updateCartItem:", error);
+
+    if (req.user?._id) {
+      await redisClient.invalidateCart(req.user._id.toString());
+    }
     res.status(500).json({
       success: false,
       message: "Failed to update cart",
@@ -225,22 +291,42 @@ export const removeFromCart = async (
 ): Promise<void> => {
   try {
     const { productId } = req.params;
+    const userId = req.user._id.toString();
 
-    const cart = await Cart.findOne({ user: req.user._id });
-    if (!cart) {
-      res.status(404).json({
-        success: false,
-        message: "Cart not found",
-      });
-      return;
+    let cartDocument = null;
+    const cachedCart = await redisClient.getCachedCart(userId);
+
+    if (cachedCart) {
+      cartDocument = await Cart.findOne({ user: userId });
+      if (!cartDocument) {
+        await redisClient.invalidateCart(userId);
+        res.status(404).json({
+          success: false,
+          message: "Cart not found",
+        });
+        return;
+      }
+    } else {
+      cartDocument = await Cart.findOne({ user: userId });
+      if (!cartDocument) {
+        res.status(404).json({
+          success: false,
+          message: "Cart not found",
+        });
+        return;
+      }
     }
 
-    cart.items = cart.items.filter(
+    cartDocument.items = cartDocument.items.filter(
       (item) => item.product.toString() !== productId
     );
 
-    await cart.save();
-    const formattedCart = await formatCartResponse(cart);
+    await cartDocument.save();
+    const formattedCart = await formatCartResponse(cartDocument);
+
+    await redisClient.updateCartCache(userId, formattedCart);
+
+    await redisClient.invalidateProduct(productId);
 
     res.status(200).json({
       success: true,
@@ -249,6 +335,10 @@ export const removeFromCart = async (
     });
   } catch (error) {
     console.error("Error in removeFromCart:", error);
+
+    if (req.user?._id) {
+      await redisClient.invalidateCart(req.user._id.toString());
+    }
     res.status(500).json({
       success: false,
       message: "Failed to remove product from cart",
@@ -261,17 +351,44 @@ export const clearCart = async (
   res: Response<ApiResponse<null>>
 ): Promise<void> => {
   try {
-    const cart = await Cart.findOne({ user: req.user._id });
-    if (!cart) {
-      res.status(404).json({
-        success: false,
-        message: "Cart not found",
-      });
-      return;
+    const userId = req.user._id.toString();
+
+    let cartDocument = null;
+    const cachedCart = await redisClient.getCachedCart(userId);
+
+    if (cachedCart) {
+      cartDocument = await Cart.findOne({ user: userId });
+      if (!cartDocument) {
+        await redisClient.invalidateCart(userId);
+        res.status(404).json({
+          success: false,
+          message: "Cart not found",
+        });
+        return;
+      }
+    } else {
+      cartDocument = await Cart.findOne({ user: userId });
+      if (!cartDocument) {
+        res.status(404).json({
+          success: false,
+          message: "Cart not found",
+        });
+        return;
+      }
     }
 
-    cart.items = [];
-    await cart.save();
+    const productIds = cartDocument.items.map((item) =>
+      item.product.toString()
+    );
+
+    cartDocument.items = [];
+    await cartDocument.save();
+
+    await redisClient.invalidateCart(userId);
+
+    await Promise.all(
+      productIds.map((productId) => redisClient.invalidateProduct(productId))
+    );
 
     res.status(200).json({
       success: true,
@@ -280,6 +397,10 @@ export const clearCart = async (
     });
   } catch (error) {
     console.error("Error in clearCart:", error);
+
+    if (req.user?._id) {
+      await redisClient.invalidateCart(req.user._id.toString());
+    }
     res.status(500).json({
       success: false,
       message: "Failed to clear cart",
