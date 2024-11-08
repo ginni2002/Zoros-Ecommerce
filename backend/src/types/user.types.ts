@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Document } from "mongoose";
+import { Document, Types } from "mongoose";
 
 export const UserRole = {
   USER: "USER",
@@ -59,6 +59,7 @@ export type LoginType = z.infer<typeof loginSchema>;
 export type AddressType = z.infer<typeof addressSchema>;
 
 export interface IUser extends UserType, Document {
+  _id: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;

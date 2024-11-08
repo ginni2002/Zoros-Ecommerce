@@ -10,5 +10,8 @@ declare namespace NodeJS {
     JWT_SECRET: string;
     JWT_EXPIRE: string;
     FRONTEND_URL: string;
+    REDIS_PASSWORD: string;
+    REDIS_HOST: string;
+    REDIS_PORT: string;
   }
 }
