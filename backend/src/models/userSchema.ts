@@ -1,9 +1,9 @@
 import { Schema, model } from "mongoose";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { IUser, UserRole, AddressType } from "../types/user.types";
+import { IUser, UserRole, IAddress } from "../types/user.types";
 
-const addressSchema = new Schema<AddressType>({
+const addressSchema = new Schema<IAddress>({
   street: {
     type: String,
     required: [true, "Street address is required"],
