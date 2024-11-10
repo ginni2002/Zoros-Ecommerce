@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import { UserRole } from "../types/user.types";
 import User from "../models/userSchema";
 
 interface JWTPayload {

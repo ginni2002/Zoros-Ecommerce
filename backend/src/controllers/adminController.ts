@@ -7,6 +7,8 @@ import {
   IProduct,
 } from "../types/product.types";
 import { ApiResponse } from "../types/api.types";
+import { DetailedRateLimitInfo, ClearLimitInfo } from "../types/admin.types";
+import redisClient from "../utils/redisUtils";
 
 const formatZodError = (error: ZodError) => {
   return error.errors.reduce((acc, curr) => {
@@ -80,6 +82,96 @@ export const addMockData = async (
       success: false,
       message: "Internal Server Error",
       errors: { general: ["An unexpected error occurred"] },
+    });
+  }
+};
+
+export const clearRateLimits = async (
+  req: Request,
+  res: Response<ApiResponse<ClearLimitInfo>>
+): Promise<void> => {
+  try {
+    const result = await redisClient.clearRateLimits();
+    if (result.success) {
+      res.json({
+        success: true,
+        data: {
+          cleared: result.cleared,
+        },
+        message: `Successfully cleared ${result.cleared} rate limit entries`,
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: "Failed to clear rate limits",
+      });
+    }
+  } catch (error) {
+    console.error("Error clearing rate limits:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to clear rate limits",
+    });
+  }
+};
+
+export const checkRateLimits = async (
+  req: Request,
+  res: Response<ApiResponse<DetailedRateLimitInfo>>
+): Promise<void> => {
+  const ip = req.ip || req.socket.remoteAddress || "unknown";
+
+  if (ip === "unknown") {
+    res.status(400).json({
+      success: false,
+      message: "Could not determine IP address",
+    });
+    return;
+  }
+
+  try {
+    const [apiRemaining, authRemaining, searchRemaining, orderRemaining] =
+      await Promise.all([
+        redisClient.getRemainingRequests(ip, "rl:api:"),
+        redisClient.getRemainingRequests(ip, "rl:auth:"),
+        redisClient.getRemainingRequests(ip, "rl:search:"),
+        redisClient.getRemainingRequests(ip, "rl:order:"),
+      ]);
+
+    res.json({
+      success: true,
+      data: {
+        ip,
+        limits: {
+          api: {
+            remaining: apiRemaining,
+            total: 100,
+            resetIn: "15 minutes",
+          },
+          auth: {
+            remaining: authRemaining,
+            total: 5,
+            resetIn: "15 minutes",
+          },
+          search: {
+            remaining: searchRemaining,
+            total: 30,
+            resetIn: "1 minute",
+          },
+          order: {
+            remaining: orderRemaining,
+            total: 10,
+            resetIn: "1 hour",
+          },
+        },
+      },
+      message: "Rate limit info retrieved successfully",
+    });
+  } catch (error) {
+    console.error("Error checking rate limits:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to check rate limits",
     });
   }
 };
