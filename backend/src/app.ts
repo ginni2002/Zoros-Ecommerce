@@ -3,7 +3,8 @@ import express, { Express, Request, Response, NextFunction } from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import helmet from "helmet";
-// import nodemailer from "nodemailer";
+import path from "path";
+import fileUpload from "express-fileupload";
 
 // File Imports
 import connectDB from "./database/connectDB";
@@ -17,7 +18,18 @@ import orderRoutes from "./routes/orderRoutes";
 import profileRoutes from "./routes/profileRoutes";
 import webhookRoutes from "./routes/webhookRoutes";
 import orderHistoryRoutes from "./routes/orderHistoryRoutes";
+import {
+  apiLimiter,
+  authLimiter,
+  searchLimiter,
+  orderLimiter,
+} from "./middleware/rateLimiter";
+import { sanitizeInput } from "./middleware/requestValidator";
+import cleanupService from "./utils/cleanupUtil";
+import { securityHeaders } from "./middleware/securityHeaders";
+import redisClient from "./utils/redisUtils";
 // import { testRedisConnection } from "./utils/redisUtils";
+// import { testEmail } from "./utils/emailService";
 
 // Initialise Environment Variable
 dotenv.config();
@@ -45,104 +57,153 @@ if (missingEnvVars.length > 0) {
   );
 }
 
-// Create App
-const app: Express = express();
-
 // Initialise PORT
 const PORT: number = parseInt(process.env.PORT, 10);
 
-// Connect Database
-connectDB();
+// Create App
+const app: Express = express();
 
-// Test redis connection
-// testRedisConnection();
+// Security Middleware
+const initializeSecurity = () => {
+  app.use(helmet());
+  app.use(
+    cors({
+      origin: process.env.FRONTEND_URL || "https://localhost:3000",
+      credentials: true,
+    })
+  );
+  app.use(securityHeaders);
+};
 
-//Email test
-// const testEmail = async () => {
-//   try {
-//     const transporter = nodemailer.createTransport({
-//       service: "gmail",
-//       auth: {
-//         user: process.env.EMAIL_USER,
-//         pass: process.env.EMAIL_APP_PASSWORD,
-//       },
-//     });
+// Request Handling Middleware
+const initializeRequestHandling = () => {
+  // Stripe Webhook
+  app.use("/api/webhooks/stripe", webhookRoutes);
 
-//     await transporter.verify();
-//     console.log("Email configuration is valid");
+  app.use(express.urlencoded({ extended: true }));
+  app.use(express.json({ limit: "50mb" }));
 
-//     const info = await transporter.sendMail({
-//       from: `"Zoros-ecom" <${process.env.EMAIL_USER}>`,
-//       to: process.env.EMAIL_USER,
-//       subject: "Test Email",
-//       text: "Test email message.",
-//     });
-//     console.log("Test email sent:", info.messageId);
-//   } catch (error) {
-//     console.error("Email configuration error:", error);
-//   }
-// };
+  app.use(
+    fileUpload({
+      limits: { fileSize: 20 * 1024 * 1024 }, // 20MB max file size
+      useTempFiles: true,
+      tempFileDir: path.join(__dirname, "tmp"),
+      createParentPath: true,
+      parseNested: true,
+      debug: process.env.NODE_ENV !== "production",
+      abortOnLimit: true,
+    })
+  );
 
-// testEmail();
+  app.use(sanitizeInput);
+};
 
-// cors
-app.use(helmet());
-app.use(
-  cors({
-    origin: process.env.FRONTEND_URL || "https://localhost:3000",
-    credentials: true,
-  })
-);
+// Rate limiting
+const initializeRateLimiting = () => {
+  app.use(apiLimiter);
+  app.use("/api/auth", authLimiter);
+  app.use("/api/search", searchLimiter);
+  app.use("/api/orders", orderLimiter);
+};
 
-// Webhooks
-app.use("/api/webhooks/stripe", webhookRoutes);
+const initializeRoutes = () => {
+  //Routes
+  app.use("/api/admin", adminRoutes);
+  app.use("/api/auth", authRoutes);
+  app.use("/api/profile", profileRoutes);
+  app.use("/api/products", productRoutes);
+  app.use("/api/search", searchRoutes);
+  app.use("/api/cart", cartRoutes);
+  app.use("/api/orders", orderRoutes);
+  app.use("/api/order-history", orderHistoryRoutes);
 
-//Middlewares
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json({ limit: "50mb" }));
-
-//Routes
-app.use("/api/admin", adminRoutes);
-app.use("/api/auth", authRoutes);
-app.use("/api/profile", profileRoutes);
-app.use("/api/products", productRoutes);
-app.use("/api/search", searchRoutes);
-app.use("/api/cart", cartRoutes);
-app.use("/api/orders", orderRoutes);
-app.use("/api/order-history", orderHistoryRoutes);
-
-// Backend Health Check
-app.get("/health", (_req: Request, res: Response) => {
-  res.status(200).json({
-    status: "Ok",
-    timestamp: new Date(),
-    uptime: process.uptime(),
+  // Backend Health Check
+  app.get("/health", (_req: Request, res: Response) => {
+    res.status(200).json({
+      status: "Ok",
+      timestamp: new Date(),
+      uptime: process.uptime(),
+    });
   });
-});
 
-// Unmatched Routes handler
-app.use((_req: Request, res: Response) => {
-  res.status(404).json({
-    success: false,
-    message: "Route not found",
+  // 404 Handler Unmatched routes
+  app.use((_req: Request, res: Response) => {
+    res.status(404).json({
+      success: false,
+      message: "Route not found",
+    });
   });
-});
 
-// Error Handling Middleware
-app.use(errorHandler);
+  // Error Handler
+  app.use(errorHandler);
+};
+
+const initializeServices = async () => {
+  try {
+    // connect Database
+    await connectDB();
+
+    // Test redis connection
+    // testRedisConnection();
+
+    // Redis connection
+    const redisConnected = await redisClient.ensureConnection();
+    if (!redisConnected) {
+      console.warn(
+        "Redis connection failed - rate limiting will use memory store"
+      );
+    }
+
+    //Email test
+    // testEmail();
+
+    // Temp File Cleanup
+    cleanupService.initialize();
+  } catch (error) {
+    console.error("Failed to initialize services: ", error);
+    throw error;
+  }
+};
+
+const handleGracefulShutdown = (server: any) => {
+  const shutdown = () => {
+    console.log("Received shutdown signal");
+    server.close(() => {
+      console.log("Server shut down gracefully");
+      process.exit(0);
+    });
+  };
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+};
 
 // Start Server
 const startServer = async () => {
   try {
-    app.listen(PORT, () => {
+    await initializeServices();
+    initializeSecurity();
+    initializeRequestHandling();
+    initializeRateLimiting();
+    initializeRoutes();
+
+    const server = app.listen(PORT, () => {
       console.log(`Server is running on port: ${PORT}`);
       console.log(`Health check available at http://localhost:${PORT}/health`);
     });
+
+    handleGracefulShutdown(server);
+
+    server.on("error", (error: Error) => {
+      console.error("Server error:", error);
+      process.exit(1);
+    });
   } catch (error) {
-    console.error("Failed to start server: ", error);
+    console.error("Failed to start server:", error);
     process.exit(1);
   }
 };
+
 startServer();
 
 export default app;
