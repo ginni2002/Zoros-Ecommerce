@@ -1,36 +1,102 @@
 import { Redis } from "ioredis";
 import dotenv from "dotenv";
+import type { RedisOptions } from "ioredis";
 import { IProduct } from "../types/product.types";
 
 dotenv.config();
-if (
-  !process.env.REDIS_HOST ||
-  !process.env.REDIS_PORT ||
-  !process.env.REDIS_PASSWORD
-) {
-  throw new Error("REDIS envs are not defined in environment variables");
+const requiredEnvVars = ["REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD"];
+const missingEnvVars = requiredEnvVars.filter(
+  (varName) => !process.env[varName]
+);
+if (missingEnvVars.length > 0) {
+  throw new Error(
+    `Missing required Redis environment variables: ${missingEnvVars.join(", ")}`
+  );
 }
-
-const redisConfig = {
-  password: process.env.REDIS_PASSWORD,
-  host: process.env.REDIS_HOST,
-  port: parseInt(process.env.REDIS_PORT || "6379"),
-};
-
-const redis = new Redis({
-  password: redisConfig.password,
-  host: redisConfig.host,
-  port: redisConfig.port,
-});
 
 const CACHE_TTL = {
   PRODUCT: 30 * 60,
   SEARCH: 5 * 60,
   WEBHOOK: 24 * 60 * 60,
   CART: 2 * 24 * 60 * 60,
+  RATE_LIMIT: 24 * 60 * 60,
 };
 
+const redisConfig: RedisOptions = {
+  password: process.env.REDIS_PASSWORD,
+  host: process.env.REDIS_HOST,
+  port: parseInt(process.env.REDIS_PORT || "6379"),
+  enableOfflineQueue: false,
+  maxRetriesPerRequest: 3,
+  retryStrategy(times: number) {
+    const maxRetryAttempts = 3;
+    if (times > maxRetryAttempts) {
+      console.error(`Redis retry attempt ${times} failed, giving up`);
+      return null;
+    }
+    const delay = Math.min(times * 50, 2000);
+    console.log(`Retrying Redis connection in ${delay}ms...`);
+    return delay;
+  },
+  reconnectOnError: (err: Error) => {
+    return err.message.includes("READONLY");
+  },
+};
+
+export const redis = new Redis({
+  ...redisConfig,
+  lazyConnect: true,
+});
+
+let isRedisConnected = false;
+let connectionPromise: Promise<void> | null = null;
+
+redis.on("connect", () => {
+  console.log("Redis connected successfully");
+  isRedisConnected = true;
+});
+
+redis.on("error", (error) => {
+  console.error("Redis connection error:", error);
+  isRedisConnected = false;
+});
+
+redis.on("close", () => {
+  console.log("Redis connection closed");
+  isRedisConnected = false;
+  connectionPromise = null;
+});
+
 export const redisClient = {
+  isConnected(): boolean {
+    return isRedisConnected && redis.status === "ready";
+  },
+
+  async ensureConnection(): Promise<boolean> {
+    if (!isRedisConnected) {
+      if (connectionPromise) {
+        try {
+          await connectionPromise;
+          return true;
+        } catch (error) {
+          connectionPromise = null;
+          return false;
+        }
+      }
+
+      try {
+        connectionPromise = redis.connect();
+        await connectionPromise;
+        return true;
+      } catch (error) {
+        console.error("Failed to establish Redis connection:", error);
+        connectionPromise = null;
+        return false;
+      }
+    }
+    return true;
+  },
+
   async cacheProduct(product: IProduct): Promise<void> {
     try {
       await redis.setex(
@@ -182,15 +248,50 @@ export const redisClient = {
       console.error("Error updating cart cache:", error);
     }
   },
+
+  async clearRateLimits(prefix: string = "rl:"): Promise<{
+    success: boolean;
+    cleared: number;
+  }> {
+    try {
+      const keys = await redis.keys(`${prefix}*`);
+      if (keys.length > 0) {
+        await redis.del(...keys);
+        return {
+          success: true,
+          cleared: keys.length,
+        };
+      }
+      return {
+        success: true,
+        cleared: 0,
+      };
+    } catch (error) {
+      console.error("Error clearing rate limits: ", error);
+      return {
+        success: false,
+        cleared: 0,
+      };
+    }
+  },
+
+  async getRemainingRequests(
+    ip: string,
+    prefix: string = "rl:"
+  ): Promise<number> {
+    try {
+      if (!ip || ip === "unknown") {
+        return 0;
+      }
+      const key = `${prefix}${ip}`;
+      const remaining = await redis.get(key);
+      return remaining ? parseInt(remaining) : -1;
+    } catch (error) {
+      console.error("Error getting remaining requests:", error);
+      return 0;
+    }
+  },
 };
-
-redis.on("connect", () => {
-  console.log("Redis connected successfully");
-});
-
-redis.on("error", (error) => {
-  console.error("Redis connection error:", error);
-});
 
 //testing
 export const testRedisConnection = async (): Promise<void> => {

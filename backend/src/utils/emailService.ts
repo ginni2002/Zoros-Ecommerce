@@ -246,6 +246,31 @@ export const sendOrderStatusUpdate = async (
   await sendEmail(user.email, template);
 };
 
+export const testEmail = async () => {
+  try {
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_APP_PASSWORD,
+      },
+    });
+
+    await transporter.verify();
+    console.log("Email configuration is valid");
+
+    const info = await transporter.sendMail({
+      from: `"Zoros-ecom" <${process.env.EMAIL_USER}>`,
+      to: process.env.EMAIL_USER,
+      subject: "Test Email",
+      text: "Test email message.",
+    });
+    console.log("Test email sent:", info.messageId);
+  } catch (error) {
+    console.error("Email configuration error:", error);
+  }
+};
+
 export default {
   sendOrderConfirmation,
   sendPaymentConfirmation,
