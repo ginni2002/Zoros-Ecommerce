@@ -28,6 +28,7 @@ import { sanitizeInput } from "./middleware/requestValidator";
 import cleanupService from "./utils/cleanupUtil";
 import { securityHeaders } from "./middleware/securityHeaders";
 import redisClient from "./utils/redisUtils";
+import reviewRoutes from "./routes/reviewRoutes";
 // import { testRedisConnection } from "./utils/redisUtils";
 // import { testEmail } from "./utils/emailService";
 
@@ -116,6 +117,7 @@ const initializeRoutes = () => {
   app.use("/api/cart", cartRoutes);
   app.use("/api/orders", orderRoutes);
   app.use("/api/order-history", orderHistoryRoutes);
+  app.use("/api/reviews", reviewRoutes);
 
   // Backend Health Check
   app.get("/health", (_req: Request, res: Response) => {
