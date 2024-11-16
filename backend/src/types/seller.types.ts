@@ -29,7 +29,7 @@ export interface ISeller extends Document {
   emailVerificationToken?: string;
   emailVerificationExpires?: Date;
   storeDescription?: string;
-
+  password: string;
   totalProducts: number;
   totalOrders: number;
   totalRevenue: number;
@@ -37,6 +37,8 @@ export interface ISeller extends Document {
 
   verificationStatus: string;
 
+  comparePassword(candidatePassword: string): Promise<boolean>;
+  generateAuthToken(): string;
   generateVerificationToken(): string;
   verifyEmail(token: string): Promise<boolean>;
 }
@@ -57,6 +59,14 @@ export const businessDetailsSchema = z.object({
   businessEmail: z.string().email("Invalid email address"),
 });
 
+const passwordSchema = z
+  .string()
+  .min(8, "Password must be at least 8 characters")
+  .regex(
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/,
+    "Password must contain at least one uppercase letter, one lowercase letter, one number and one special character"
+  );
+
 export const sellerRegistrationSchema = z.object({
   businessDetails: businessDetailsSchema,
   storeDescription: z
@@ -64,6 +74,7 @@ export const sellerRegistrationSchema = z.object({
     .min(20, "Store description must be at least 20 characters")
     .max(500, "Store description must not exceed 500 characters")
     .optional(),
+  password: passwordSchema,
 });
 
 export const sellerLoginSchema = z.object({

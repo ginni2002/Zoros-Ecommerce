@@ -1,6 +1,8 @@
 import { Schema, model, Types } from "mongoose";
 import crypto from "crypto";
 import { ISeller, SellerStatus } from "../types/seller.types";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 
 const businessDetailsSchema = new Schema({
   businessName: {
@@ -60,8 +62,12 @@ const sellerSchema = new Schema<ISeller>(
     user: {
       type: Schema.Types.ObjectId,
       ref: "User",
-      required: true,
-      unique: true,
+      required: false,
+    },
+    password: {
+      type: String,
+      required: [true, "Password is required"],
+      minlength: [8, "Password must be at least 8 characters"],
     },
     businessDetails: businessDetailsSchema,
     status: {
@@ -105,7 +111,6 @@ const sellerSchema = new Schema<ISeller>(
   }
 );
 
-sellerSchema.index({ user: 1 }, { unique: true });
 sellerSchema.index({ "businessDetails.gstNumber": 1 }, { unique: true });
 sellerSchema.index({ "businessDetails.businessEmail": 1 }, { unique: true });
 
@@ -145,6 +150,22 @@ sellerSchema.methods.verifyEmail = async function (token: string) {
   await this.save();
 
   return true;
+};
+
+sellerSchema.methods.comparePassword = async function (
+  candidatePassword: string
+): Promise<boolean> {
+  return bcrypt.compare(candidatePassword, this.password);
+};
+
+sellerSchema.methods.generateAuthToken = function (): string {
+  return jwt.sign(
+    { sellerId: this._id, status: this.status },
+    process.env.JWT_SECRET as string,
+    {
+      expiresIn: process.env.JWT_EXPIRE,
+    }
+  );
 };
 
 sellerSchema.post("save", function (error: any, doc: any, next: any) {
