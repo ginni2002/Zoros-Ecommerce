@@ -28,7 +28,9 @@ import { sanitizeInput } from "./middleware/requestValidator";
 import cleanupService from "./utils/cleanupUtil";
 import { securityHeaders } from "./middleware/securityHeaders";
 import redisClient from "./utils/redisUtils";
+import sellerAuthRoutes from "./routes/sellerAuthRoutes";
 import reviewRoutes from "./routes/reviewRoutes";
+import adminSellerRoutes from "./routes/adminSellerRoutes";
 // import { testRedisConnection } from "./utils/redisUtils";
 // import { testEmail } from "./utils/emailService";
 
@@ -110,6 +112,7 @@ const initializeRateLimiting = () => {
 const initializeRoutes = () => {
   //Routes
   app.use("/api/admin", adminRoutes);
+  app.use("/api/admin", adminSellerRoutes);
   app.use("/api/auth", authRoutes);
   app.use("/api/profile", profileRoutes);
   app.use("/api/products", productRoutes);
@@ -118,6 +121,7 @@ const initializeRoutes = () => {
   app.use("/api/orders", orderRoutes);
   app.use("/api/order-history", orderHistoryRoutes);
   app.use("/api/reviews", reviewRoutes);
+  app.use("/api/sellerAuth", sellerAuthRoutes);
 
   // Backend Health Check
   app.get("/health", (_req: Request, res: Response) => {
