@@ -4,6 +4,15 @@ import {
   clearRateLimits,
   checkRateLimits,
 } from "../controllers/adminController";
+import {
+  registerAdmin,
+  login,
+  verifyOTPAndLogin,
+} from "../controllers/adminAuthController";
+import {
+  authenticateAdmin,
+  requireSuperAdmin,
+} from "../middleware/adminAuthMiddleware";
 // import { validateFileUpload } from "../middleware/requestValidator";
 // import { ALLOWED_IMAGE_TYPES, FILE_SIZE_LIMITS } from "../types/file.types";
 
@@ -24,4 +33,17 @@ router.get("/check-limits", checkRateLimits);
 //   }),
 //   addMockDataWithImage
 // );
+
+router.post("/register", registerAdmin);
+router.post("/login", login);
+router.post("/verify-otp", verifyOTPAndLogin);
+
+router.get("/me", authenticateAdmin, async (req, res) => {
+  res.status(200).json({
+    success: true,
+    data: req.admin,
+    message: "Admin profile retrieved successfully",
+  });
+});
+
 export default router;
