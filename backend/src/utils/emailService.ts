@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import { IOrder } from "../types/order.types";
 import { IUser } from "../types/user.types";
+import { ISeller } from "../types/seller.types";
 
 if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
   throw new Error("Email configuration is missing");
@@ -270,8 +271,161 @@ export const testEmail = async () => {
   }
 };
 
+const createSellerVerificationTemplate = (
+  seller: ISeller,
+  verificationToken: string
+): EmailTemplate => {
+  const verificationLink = `${process.env.FRONTEND_URL}/api/sellerAuth/verify-email?token=${verificationToken}`;
+
+  return {
+    subject: "Verify Your Seller Account - Zoros-Ecom",
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #1a1a1a; padding: 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin: 0;">Verify Your Seller Account</h1>
+        </div>
+        
+        <div style="padding: 20px; background-color: #f8f8f8;">
+          <h2 style="color: #333333;">Hello ${seller.businessDetails.businessName},</h2>
+          <p>Thank you for registering as a seller on Zoros-Ecom. Please verify your email address to continue with the registration process.</p>
+          
+          <div style="background-color: #ffffff; padding: 20px; border-radius: 5px; margin: 20px 0; text-align: center;">
+            <p>Click the button below to verify your email address:</p>
+            <a href="${verificationLink}" style="display: inline-block; padding: 12px 24px; background-color: #1a1a1a; color: #ffffff; text-decoration: none; border-radius: 5px; margin: 10px 0;">Verify Email</a>
+            <p style="font-size: 12px; color: #666666;">This link will expire in 24 hours</p>
+          </div>
+          
+          <div style="background-color: #ffffff; padding: 20px; border-radius: 5px;">
+            <h3 style="color: #333333; margin-top: 0;">Business Details</h3>
+            <p><strong>Business Name:</strong> ${seller.businessDetails.businessName}</p>
+            <p><strong>GST Number:</strong> ${seller.businessDetails.gstNumber}</p>
+          </div>
+        </div>
+      </div>
+    `,
+  };
+};
+
+const createSellerApprovalTemplate = (seller: ISeller): EmailTemplate => {
+  return {
+    subject: "Seller Account Approved - Zoros-Ecom",
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #1a1a1a; padding: 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin: 0;">Account Approved</h1>
+        </div>
+        
+        <div style="padding: 20px; background-color: #f8f8f8;">
+          <h2 style="color: #333333;">Hello ${seller.businessDetails.businessName},</h2>
+          <p>Congratulations! Your seller account has been approved. You can now start listing your products on Zoros-Ecom.</p>
+          
+          <div style="background-color: #ffffff; padding: 20px; border-radius: 5px; margin: 20px 0; text-align: center;">
+            <a href="${process.env.FRONTEND_URL}/seller/dashboard" style="display: inline-block; padding: 12px 24px; background-color: #1a1a1a; color: #ffffff; text-decoration: none; border-radius: 5px; margin: 10px 0;">Go to Dashboard</a>
+          </div>
+        </div>
+      </div>
+    `,
+  };
+};
+
+const createSellerRejectionTemplate = (
+  seller: ISeller,
+  reason: string
+): EmailTemplate => {
+  return {
+    subject: "Seller Account Application Status - Zoros-Ecom",
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #1a1a1a; padding: 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin: 0;">Application Status Update</h1>
+        </div>
+        
+        <div style="padding: 20px; background-color: #f8f8f8;">
+          <h2 style="color: #333333;">Hello ${seller.businessDetails.businessName},</h2>
+          <p>We have reviewed your seller account application. Unfortunately, we are unable to approve your application at this time.</p>
+          
+          <div style="background-color: #ffffff; padding: 20px; border-radius: 5px; margin: 20px 0;">
+            <h3 style="color: #333333; margin-top: 0;">Reason for Rejection</h3>
+            <p>${reason}</p>
+          </div>
+          
+          <p>If you believe this was a mistake or would like to provide additional information, please contact our support team.</p>
+        </div>
+      </div>
+    `,
+  };
+};
+
+export const sendSellerVerificationEmail = async (
+  seller: ISeller,
+  verificationToken: string
+): Promise<void> => {
+  const template = createSellerVerificationTemplate(seller, verificationToken);
+  await sendEmail(seller.businessDetails.businessEmail, template);
+};
+
+export const sendSellerApprovalEmail = async (
+  seller: ISeller
+): Promise<void> => {
+  const template = createSellerApprovalTemplate(seller);
+  await sendEmail(seller.businessDetails.businessEmail, template);
+};
+
+export const sendSellerRejectionEmail = async (
+  seller: ISeller,
+  reason: string
+): Promise<void> => {
+  const template = createSellerRejectionTemplate(seller, reason);
+  await sendEmail(seller.businessDetails.businessEmail, template);
+};
+
+const createAdminOTPTemplate = (
+  adminName: string,
+  otp: string
+): EmailTemplate => {
+  return {
+    subject: "Admin Login Verification - Zoros-Ecom",
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #1a1a1a; padding: 20px; text-align: center;">
+          <h1 style="color: #ffffff; margin: 0;">Admin Login Verification</h1>
+        </div>
+        
+        <div style="padding: 20px; background-color: #f8f8f8;">
+          <h2 style="color: #333333;">Hello ${adminName},</h2>
+          <p>Your OTP for admin login verification is:</p>
+          
+          <div style="background-color: #ffffff; padding: 20px; border-radius: 5px; margin: 20px 0; text-align: center;">
+            <h1 style="color: #333333; margin: 0; letter-spacing: 5px;">${otp}</h1>
+          </div>
+          
+          <p style="color: #666666; font-size: 14px;">This OTP will expire in 5 minutes.</p>
+          <p style="color: #666666; font-size: 14px;">If you didn't request this OTP, please ignore this email.</p>
+        </div>
+        
+        <div style="background-color: #f5f5f5; padding: 20px; text-align: center;">
+          <p style="margin: 0; color: #666666;">Secure Admin Access - Zoros-Ecom</p>
+        </div>
+      </div>
+    `,
+  };
+};
+
+export const sendAdminOTP = async (
+  email: string,
+  name: string,
+  otp: string
+): Promise<void> => {
+  const template = createAdminOTPTemplate(name, otp);
+  await sendEmail(email, template);
+};
+
 export default {
   sendOrderConfirmation,
   sendPaymentConfirmation,
   sendOrderStatusUpdate,
+  sendSellerVerificationEmail,
+  sendSellerApprovalEmail,
+  sendSellerRejectionEmail,
+  sendAdminOTP,
 };
